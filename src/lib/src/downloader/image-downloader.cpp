@@ -606,10 +606,11 @@ bool ImageDownloader::afterTemporarySave(Image::SaveResult saveResult, QList<Ima
 
 void ImageDownloader::postSaveFinished()
 {
-	auto *watcher = qobject_cast<QFutureWatcher<Image::PostSaveContext>*>(sender());
-	if (watcher == nullptr) {
+	QObject *senderObj = sender();
+	if (senderObj == nullptr) {
 		return;
 	}
+	auto *watcher = static_cast<QFutureWatcher<Image::PostSaveContext>*>(senderObj);
 
 	const auto metaIt = m_asyncPostSave.find(watcher);
 	if (metaIt == m_asyncPostSave.end()) {
