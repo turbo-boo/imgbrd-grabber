@@ -1,5 +1,18 @@
 project(sites)
 
+# Ensure npm is available for the sites build steps
+if (WIN32)
+	find_program(NPM_EXECUTABLE NAMES npm.cmd)
+	if (NOT NPM_EXECUTABLE)
+		find_program(NPM_EXECUTABLE NAMES npm)
+	endif()
+else()
+	find_program(NPM_EXECUTABLE NAMES npm)
+endif()
+if (NOT NPM_EXECUTABLE)
+	message(FATAL_ERROR "npm not found in PATH")
+endif()
+
 # Get all TS files to transpile
 file(GLOB_RECURSE SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/**.ts")
 
@@ -11,9 +24,8 @@ listFilterRegex(SOURCES "node_modules")
 # Install NPM dependencies
 add_custom_command(
 	OUTPUT NPM_modules
-	COMMAND npm install
+	COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_CURRENT_SOURCE_DIR}" "${NPM_EXECUTABLE}" install
 	COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/NPM_modules
-	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 	COMMENT "Installing npm packages..."
 	DEPENDS package.json
 )
@@ -22,9 +34,8 @@ add_custom_target(sites_modules DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/NPM_modules 
 # Transpiling TypeScript files into JavaScript
 add_custom_command(
 	OUTPUT JavaScript_sites
-	COMMAND npm run build
+	COMMAND ${CMAKE_COMMAND} -E chdir "${CMAKE_CURRENT_SOURCE_DIR}" "${NPM_EXECUTABLE}" run build
 	COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/JavaScript_sites
-	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 	COMMENT "Transpiling TypeScript sources into JavaScript..."
 	DEPENDS "${SOURCES}"
 )
@@ -34,6 +45,6 @@ add_dependencies(sites sites_modules)
 
 add_test(
 	NAME sites
-	COMMAND npm run test
+	COMMAND "${NPM_EXECUTABLE}" run test
 	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
