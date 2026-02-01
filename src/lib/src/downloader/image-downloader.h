@@ -1,7 +1,10 @@
 #ifndef IMAGE_DOWNLOADER_H
 #define IMAGE_DOWNLOADER_H
 
+#include <QFutureWatcher>
+#include <QHash>
 #include <QList>
+#include <QMap>
 #include <QObject>
 #include <QSharedPointer>
 #include <QString>
@@ -37,13 +40,14 @@ class ImageDownloader : public QObject
 		int needExactTags(QSettings *settings) const;
 		Image::Size currentSize() const;
 		QList<ImageSaveResult> makeResult(const QStringList &paths, Image::SaveResult result) const;
-		QList<ImageSaveResult> afterTemporarySave(Image::SaveResult saveResult);
 
 	signals:
+		void downloaded(QSharedPointer<Image> img);
 		void downloadProgress(QSharedPointer<Image> img, qint64 v1, qint64 v2);
 		void saved(QSharedPointer<Image> img, const QList<ImageSaveResult> &result);
 
 	private slots:
+		void postSaveFinished();
 		void loadedSave(Image::LoadTagsResult result);
 		void loadImage(bool rateLimit = false);
 		void downloadProgressImage(qint64 v1, qint64 v2);
@@ -52,6 +56,17 @@ class ImageDownloader : public QObject
 		void success();
 
 	private:
+		struct AsyncPostSaveMeta
+		{
+			Image::Size size;
+			Image::SaveResult saveResult;
+			bool addMd5;
+			int index;
+		};
+
+		void emitDownloaded();
+		bool afterTemporarySave(Image::SaveResult saveResult, QList<ImageSaveResult> &outResults);
+
 		Profile *m_profile;
 		Blacklist *m_blacklist = nullptr;
 		QSharedPointer<Image> m_image;
@@ -70,6 +85,10 @@ class ImageDownloader : public QObject
 		Image::Size m_size = Image::Size::Unknown;
 		bool m_postSave;
 		bool m_forceExisting;
+		bool m_downloadedEmitted = false;
+		int m_pendingPostSave = 0;
+		QMap<int, ImageSaveResult> m_asyncResults;
+		QHash<QFutureWatcher<Image::PostSaveContext>*, AsyncPostSaveMeta> m_asyncPostSave;
 
 		NetworkReply *m_reply = nullptr;
 		QUrl m_url;

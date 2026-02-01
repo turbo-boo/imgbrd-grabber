@@ -23,7 +23,7 @@ void DownloadQueue::add(Queue queue, ImageDownloader *downloader)
 void DownloadQueue::dequeued(const QVariant &item)
 {
 	ImageDownloader *downloader = item.value<ImageDownloader*>();
-	connect(downloader, &ImageDownloader::saved, m_queue, &ConcurrentMultiQueue::next);
+	connect(downloader, &ImageDownloader::downloaded, m_queue, &ConcurrentMultiQueue::next);
 	connect(downloader, &ImageDownloader::saved, downloader, &ImageDownloader::deleteLater);
 	downloader->save();
 }

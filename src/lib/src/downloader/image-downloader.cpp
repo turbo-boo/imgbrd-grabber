@@ -4,6 +4,7 @@
 #include <QImageReader>
 #include <QSettings>
 #include <QSize>
+#include <QtConcurrent>
 #include <QUuid>
 #include <utility>
 #include "extension-rotator.h"
@@ -78,6 +79,12 @@ void ImageDownloader::setBlacklist(Blacklist *blacklist)
 
 void ImageDownloader::save()
 {
+	m_downloadedEmitted = false;
+	if (m_pendingPostSave == 0) {
+		m_asyncResults.clear();
+		m_asyncPostSave.clear();
+	}
+
 	// Try to build a path first if we don't need tags for the filename, to check for the "same dir" MD5 setting
 	const int filenameTagLevel = m_filename.needExactTags(m_image->parentSite(), m_profile->getSettings());
 	const bool filenameNeedExactTags = filenameTagLevel == 2 || (filenameTagLevel == 1 && m_image->hasUnknownTag());
@@ -183,6 +190,7 @@ void ImageDownloader::loadedSave(Image::LoadTagsResult result)
 
 	// Detect error when loading an image's tags
 	if (result != Image::LoadTagsResult::Ok) {
+		emitDownloaded();
 		emit saved(m_image, makeResult({ "" }, Image::SaveResult::DetailsLoadError));
 		return;
 	}
@@ -194,6 +202,7 @@ void ImageDownloader::loadedSave(Image::LoadTagsResult result)
 		// If we still don't have any paths, that means the filename is invalid
 		if (m_paths.isEmpty()) {
 			log(QStringLiteral("No path could be generated for filename: '%1'").arg(m_filename.format()), Logger::Error);
+			emitDownloaded();
 			emit saved(m_image, makeResult({ "" }, Image::SaveResult::Error));
 			return;
 		}
@@ -215,6 +224,7 @@ void ImageDownloader::loadedSave(Image::LoadTagsResult result)
 		const QStringList &detected = m_blacklist->match(m_image->tokens(m_profile));
 		if (!detected.isEmpty()) {
 			log(QStringLiteral("Image contains blacklisted tags: '%1'").arg(detected.join("', '")), Logger::Info);
+			emitDownloaded();
 			emit saved(m_image, makeResult(m_paths, Image::SaveResult::Blacklisted));
 			return;
 		}
@@ -237,6 +247,7 @@ void ImageDownloader::loadedSave(Image::LoadTagsResult result)
 					addMd5(m_profile, path);
 				}
 			}
+			emitDownloaded();
 			emit saved(m_image, makeResult(m_paths, Image::SaveResult::AlreadyExistsDisk));
 			return;
 		}
@@ -247,9 +258,14 @@ void ImageDownloader::loadedSave(Image::LoadTagsResult result)
 			QList<ImageSaveResult> preResult {{ m_temporaryPath, m_size, res }}; // TODO(Bionus): this should use the MD5 path if possible
 
 			if (res == Image::SaveResult::Saved || res == Image::SaveResult::Copied || res == Image::SaveResult::Moved || res == Image::SaveResult::Shortcut || res == Image::SaveResult::Linked) {
-				preResult = afterTemporarySave(res);
+				const bool deferred = afterTemporarySave(res, preResult);
+				if (deferred) {
+					emitDownloaded();
+					return;
+				}
 			}
 
+			emitDownloaded();
 			emit saved(m_image, preResult);
 			return;
 		}
@@ -259,6 +275,7 @@ void ImageDownloader::loadedSave(Image::LoadTagsResult result)
 
 	if (m_url.isEmpty()) {
 		log(QStringLiteral("Image without URL found for '%1'").arg(m_paths.first()), Logger::Warning);
+		emitDownloaded();
 		emit saved(m_image, makeResult(m_paths, Image::SaveResult::NetworkError));
 		return;
 	}
@@ -288,12 +305,14 @@ void ImageDownloader::loadImage(bool rateLimit)
 	const QString rootDir = m_temporaryPath.section(QDir::separator(), 0, -2);
 	if (!QDir(rootDir).exists() && !QDir().mkpath(rootDir)) {
 		log(QStringLiteral("Impossible to create the destination folder: %1.").arg(rootDir), Logger::Error);
+		emitDownloaded();
 		emit saved(m_image, makeResult(m_paths, Image::SaveResult::Error));
 		return;
 	}
 
 	// If we can't start writing for some reason, return an error
 	if (!m_fileDownloader.start(m_reply, m_temporaryPath)) {
+		emitDownloaded();
 		emit saved(m_image, makeResult(m_paths, Image::SaveResult::Error));
 		return;
 	}
@@ -326,6 +345,7 @@ QList<ImageSaveResult> ImageDownloader::makeResult(const QStringList &paths, Ima
 
 void ImageDownloader::writeError()
 {
+	emitDownloaded();
 	emit saved(m_image, makeResult(m_paths, Image::SaveResult::Error));
 }
 
@@ -353,12 +373,14 @@ void ImageDownloader::networkError(NetworkReply::NetworkError error, const QStri
 		} else {
 			m_tryingSample = false;
 			log(QStringLiteral("Image not found."));
+			emitDownloaded();
 			emit saved(m_image, makeResult(m_paths, Image::SaveResult::NotFound));
 		}
 	} else if (error != NetworkReply::NetworkError::OperationCanceledError) {
 		// "HostNotFoundError" might be caused by network loss, so we emit a blocking "Error" instead
 		if (error == NetworkReply::NetworkError::HostNotFoundError || msg.contains("unreachable")) {
 			log(QStringLiteral("Host '%1' not found for the image: `%2`: %3 (%4)").arg(m_reply->url().host(), m_image->url().toString().toHtmlEscaped()).arg(error).arg(msg), Logger::Error);
+			emitDownloaded();
 			emit saved(m_image, makeResult(m_paths, Image::SaveResult::Error));
 			return;
 		}
@@ -372,6 +394,7 @@ void ImageDownloader::networkError(NetworkReply::NetworkError error, const QStri
 		}
 
 		log(QStringLiteral("Network error for the image: `%1`: %2 (%3)").arg(m_image->url().toString().toHtmlEscaped()).arg(error).arg(msg), Logger::Error);
+		emitDownloaded();
 		emit saved(m_image, makeResult(m_paths, Image::SaveResult::NetworkError));
 	}
 }
@@ -385,6 +408,7 @@ void ImageDownloader::success()
 		if (m_reply->rawHeader("server") == "cloudflare" && getExtension(m_url) != getExtension(redirect)) {
 			log(QStringLiteral("Cloudflare redirect image `%1` to `%2` ignored").arg(m_url.toString().toHtmlEscaped(), redirect.toString().toHtmlEscaped()), Logger::Info);
 			QFile::remove(m_temporaryPath);
+			emitDownloaded();
 			emit saved(m_image, makeResult(m_paths, Image::SaveResult::NetworkError));
 			return;
 		}
@@ -395,12 +419,21 @@ void ImageDownloader::success()
 		return;
 	}
 
-	emit saved(m_image, afterTemporarySave(Image::SaveResult::Saved));
+	QList<ImageSaveResult> result;
+	const bool deferred = afterTemporarySave(Image::SaveResult::Saved, result);
+	if (deferred) {
+		emitDownloaded();
+		return;
+	}
+	emitDownloaded();
+	emit saved(m_image, result);
 }
 
-QList<ImageSaveResult> ImageDownloader::afterTemporarySave(Image::SaveResult saveResult)
+bool ImageDownloader::afterTemporarySave(Image::SaveResult saveResult, QList<ImageSaveResult> &outResults)
 {
 	QSettings *settings = m_profile->getSettings();
+	const bool asyncPostSave = settings->value("Save/asyncPostSave", false).toBool();
+	const bool useAsync = asyncPostSave && m_postSave;
 
 	const QString multipleFiles = settings->value("Save/multiple_files", "copy").toString();
 	const Image::Size size = currentSize();
@@ -451,6 +484,8 @@ QList<ImageSaveResult> ImageDownloader::afterTemporarySave(Image::SaveResult sav
 	bool moved = false;
 
 	QList<ImageSaveResult> result;
+	bool hasAsyncPostSave = false;
+	int index = 0;
 	for (const QString &file : qAsConst(m_paths)) {
 		QString path = file + suffix;
 
@@ -460,21 +495,36 @@ QList<ImageSaveResult> ImageDownloader::afterTemporarySave(Image::SaveResult sav
 			if (suffix.isEmpty() && m_addMd5) {
 				addMd5(m_profile, file);
 			}
-			result.append({ path, size, Image::SaveResult::AlreadyExistsDisk });
+			if (useAsync) {
+				m_asyncResults.insert(index, { path, size, Image::SaveResult::AlreadyExistsDisk });
+			} else {
+				result.append({ path, size, Image::SaveResult::AlreadyExistsDisk });
+			}
+			index++;
 			continue;
 		}
 
 		const QString dir = path.section(QDir::separator(), 0, -2);
 		if (!QDir(dir).exists() && !QDir().mkpath(dir)) {
 			log(QStringLiteral("Impossible to create the destination folder: %1.").arg(dir), Logger::Error);
-			result.append({ path, size, Image::SaveResult::Error });
+			if (useAsync) {
+				m_asyncResults.insert(index, { path, size, Image::SaveResult::Error });
+			} else {
+				result.append({ path, size, Image::SaveResult::Error });
+			}
+			index++;
 			continue;
 		}
 
 		if (!moved) {
 			if (!tmp.rename(path)) {
 				log(QStringLiteral("Error renaming from `%1` to `%2`").arg(tmp.fileName(), path), Logger::Error);
-				result.append({ path, size, Image::SaveResult::Error });
+				if (useAsync) {
+					m_asyncResults.insert(index, { path, size, Image::SaveResult::Error });
+				} else {
+					result.append({ path, size, Image::SaveResult::Error });
+				}
+				index++;
 				continue;
 			} else {
 				moved = true;
@@ -487,26 +537,111 @@ QList<ImageSaveResult> ImageDownloader::afterTemporarySave(Image::SaveResult sav
 			#endif
 			if (!ok) {
 				log(QStringLiteral("Error creating link from `%1` to `%2`").arg(tmp.fileName(), path), Logger::Error);
-				result.append({ path, size, Image::SaveResult::Error });
+				if (useAsync) {
+					m_asyncResults.insert(index, { path, size, Image::SaveResult::Error });
+				} else {
+					result.append({ path, size, Image::SaveResult::Error });
+				}
+				index++;
 				continue;
 			}
 		} else {
 			if (!tmp.copy(path)) {
 				log(QStringLiteral("Error copying from `%1` to `%2`").arg(tmp.fileName(), path), Logger::Error);
-				result.append({ path, size, Image::SaveResult::Error });
+				if (useAsync) {
+					m_asyncResults.insert(index, { path, size, Image::SaveResult::Error });
+				} else {
+					result.append({ path, size, Image::SaveResult::Error });
+				}
+				index++;
 				continue;
 			}
 		}
 
 		if (m_postSave) {
+			if (useAsync) {
+				auto ctx = m_image->preparePostSave(path, size, m_startCommands, m_count, false);
+				auto *watcher = new QFutureWatcher<Image::PostSaveContext>(this);
+				const bool addMd5 = m_addMd5 && (saveResult == Image::SaveResult::Moved || saveResult == Image::SaveResult::Copied || saveResult == Image::SaveResult::Shortcut || saveResult == Image::SaveResult::Linked || saveResult == Image::SaveResult::Saved);
+				m_asyncPostSave.insert(watcher, { size, saveResult, addMd5, index });
+				connect(watcher, &QFutureWatcherBase::finished, this, &ImageDownloader::postSaveFinished);
+				watcher->setFuture(QtConcurrent::run(&Image::applyPostSaveConversions, ctx));
+				m_pendingPostSave++;
+				hasAsyncPostSave = true;
+				index++;
+				continue;
+			}
+
 			path = m_image->postSave(path, size, saveResult, m_addMd5, m_startCommands, m_count);
 		}
-		result.append({ path, size, saveResult });
+		if (useAsync) {
+			m_asyncResults.insert(index, { path, size, saveResult });
+		} else {
+			result.append({ path, size, saveResult });
+		}
+		index++;
 	}
 
 	if (!moved) {
 		tmp.remove();
 	}
 
-	return result;
+	if (useAsync) {
+		if (hasAsyncPostSave) {
+			return true;
+		}
+
+		QList<ImageSaveResult> ordered;
+		ordered.reserve(m_asyncResults.size());
+		for (auto it = m_asyncResults.constBegin(); it != m_asyncResults.constEnd(); ++it) {
+			ordered.append(it.value());
+		}
+		outResults = ordered;
+		return false;
+	}
+
+	outResults = result;
+	return false;
+}
+
+void ImageDownloader::postSaveFinished()
+{
+	auto *watcher = qobject_cast<QFutureWatcher<Image::PostSaveContext>*>(sender());
+	if (watcher == nullptr) {
+		return;
+	}
+
+	const auto metaIt = m_asyncPostSave.find(watcher);
+	if (metaIt == m_asyncPostSave.end()) {
+		watcher->deleteLater();
+		return;
+	}
+
+	AsyncPostSaveMeta meta = metaIt.value();
+	m_asyncPostSave.erase(metaIt);
+
+	Image::PostSaveContext ctx = watcher->result();
+	watcher->deleteLater();
+
+	const QString finalPath = m_image->finalizePostSave(ctx.path, meta.size, meta.addMd5);
+	m_asyncResults.insert(meta.index, { finalPath, meta.size, meta.saveResult });
+	m_pendingPostSave--;
+
+	if (m_pendingPostSave == 0) {
+		QList<ImageSaveResult> ordered;
+		ordered.reserve(m_asyncResults.size());
+		for (auto it = m_asyncResults.constBegin(); it != m_asyncResults.constEnd(); ++it) {
+			ordered.append(it.value());
+		}
+		emit saved(m_image, ordered);
+	}
+}
+
+void ImageDownloader::emitDownloaded()
+{
+	if (m_downloadedEmitted) {
+		return;
+	}
+	m_downloadedEmitted = true;
+	emit downloaded(m_image);
 }
