@@ -1,6 +1,7 @@
 #include "network-manager.h"
 #include <utility>
 #include "custom-network-access-manager.h"
+#include "models/site.h"
 #include "network-reply.h"
 
 
@@ -84,6 +85,14 @@ void NetworkManager::clear()
 	m_queue.clear();
 }
 
+int NetworkManager::burstForType(int type) const
+{
+	if (type == Site::QueryType::Img || type == Site::QueryType::Thumbnail) {
+		return m_maxConcurrency > 0 ? m_maxConcurrency : 1;
+	}
+
+	return 1;
+}
 
 void NetworkManager::next()
 {
@@ -98,7 +107,8 @@ void NetworkManager::next()
 
 	if (!reply.isNull() && reply->isRunning()) {
 		connect(reply, &NetworkReply::finished, this, &NetworkManager::next);
-		m_throttlingManager.start(type, reply);
+		const int burst = burstForType(type);
+		m_throttlingManager.start(type, reply, burst);
 	} else {
 		next();
 	}

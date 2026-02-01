@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <QMap>
+#include <QQueue>
 
 
 class NetworkReply;
@@ -16,12 +17,12 @@ class ThrottlingManager
 		void setInterval(int key, int msInterval);
 		void clear();
 
-		int msToRequest(int key) const;
-		void start(int key, NetworkReply *reply);
+		int msToRequest(int key, int burst) const;
+		void start(int key, NetworkReply *reply, int burst);
 
 	private:
 		QMap<int, int> m_intervals;
-		QMap<int, QDateTime> m_lastRequests;
+		QMap<int, QQueue<QDateTime>> m_lastRequests;
 };
 
 #endif // THROTTLING_MANAGER_H

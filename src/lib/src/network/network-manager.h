@@ -44,6 +44,8 @@ class NetworkManager : public QObject
 		void next();
 
 	private:
+		int burstForType(int type) const;
+
 		CustomNetworkAccessManager *m_manager;
 		ThrottlingManager m_throttlingManager;
 		int m_maxConcurrency = 6;
