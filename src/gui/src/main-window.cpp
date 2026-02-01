@@ -79,7 +79,7 @@ void MainWindow::init(const QStringList &args, const QMap<QString, QString> &par
 	auto sites = m_profile->getSites();
 
 	m_themeLoader = new ThemeLoader(savePath("themes/", true, false), m_settings, this);
-	m_themeLoader->setTheme(m_settings->value("theme", "Default").toString());
+	m_themeLoader->setTheme(m_settings->value("theme", "FluentLight").toString());
 	qApp->setStyle(baseStyle(m_settings));
 	ui->setupUi(this);
 

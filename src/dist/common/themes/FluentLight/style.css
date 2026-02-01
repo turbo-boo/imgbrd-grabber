@@ -1,0 +1,214 @@
+/*
+ * Fluent Light inspired theme.
+ */
+* {
+    font-family: "Segoe UI Variable", "Segoe UI", "Yu Gothic UI", "Meiryo UI", sans-serif;
+    font-size: 9pt;
+}
+
+QWidget {
+    color: #1B1B1B;
+    background-color: #F7F7F8;
+    selection-background-color: #0078D4;
+    selection-color: #FFFFFF;
+}
+
+QMainWindow {
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #FAFAFB, stop:1 #F2F3F5);
+}
+
+QToolBar {
+    background: transparent;
+    spacing: 6px;
+}
+
+QStatusBar {
+    background: #F3F4F6;
+    border-top: 1px solid #E1E1E1;
+}
+
+QGroupBox {
+    border: 1px solid #E1E1E1;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 8px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    color: #5A5A5A;
+}
+
+QPushButton, QToolButton {
+    background-color: #FFFFFF;
+    border: 1px solid #D0D0D0;
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+
+QPushButton:hover, QToolButton:hover {
+    border-color: #0078D4;
+    background-color: #F2F7FD;
+}
+
+QPushButton:pressed, QToolButton:pressed {
+    background-color: #E8F1FB;
+}
+
+QPushButton:checked, QToolButton:checked {
+    background-color: #0078D4;
+    color: #FFFFFF;
+    border-color: #0078D4;
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #FFFFFF;
+    border: 1px solid #D0D0D0;
+    border-radius: 6px;
+    padding: 4px 6px;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus,
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: #0078D4;
+}
+
+QComboBox::drop-down {
+    border-left: 1px solid #D0D0D0;
+    width: 20px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #FFFFFF;
+    border: 1px solid #D0D0D0;
+    selection-background-color: #E6F1FB;
+}
+
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+}
+
+QCheckBox::indicator {
+    border: 1px solid #BDBDBD;
+    border-radius: 3px;
+    background: #FFFFFF;
+}
+
+QCheckBox::indicator:checked {
+    background: #0078D4;
+    border-color: #0078D4;
+}
+
+QRadioButton::indicator {
+    border: 1px solid #BDBDBD;
+    border-radius: 8px;
+    background: #FFFFFF;
+}
+
+QRadioButton::indicator:checked {
+    background: #0078D4;
+    border-color: #0078D4;
+}
+
+QTabWidget::pane {
+    border: 1px solid #E1E1E1;
+    border-radius: 8px;
+    top: -1px;
+    background: #FFFFFF;
+}
+
+QTabBar::tab {
+    background: #F3F4F6;
+    border: 1px solid #E1E1E1;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 6px 12px;
+    margin-right: 4px;
+}
+
+QTabBar::tab:selected {
+    background: #FFFFFF;
+    border-color: #D0D0D0;
+}
+
+QTableView, QTreeView, QListView {
+    background: #FFFFFF;
+    alternate-background-color: #F7FAFE;
+    border: 1px solid #E1E1E1;
+    border-radius: 8px;
+    gridline-color: #ECECEC;
+}
+
+QHeaderView::section {
+    background: #F1F3F5;
+    border: none;
+    padding: 6px 8px;
+    color: #3A3A3A;
+}
+
+QProgressBar {
+    border: 1px solid #D0D0D0;
+    border-radius: 6px;
+    background: #FFFFFF;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: #0078D4;
+    border-radius: 5px;
+}
+
+QMenu {
+    background: #FFFFFF;
+    border: 1px solid #D0D0D0;
+    padding: 4px;
+}
+
+QMenu::item:selected {
+    background: #E6F1FB;
+}
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical {
+    background: #C9CED6;
+    border-radius: 5px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #B3B8C0;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 2px;
+}
+
+QScrollBar::handle:horizontal {
+    background: #C9CED6;
+    border-radius: 5px;
+    min-width: 20px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #B3B8C0;
+}
+
+QToolTip {
+    background-color: #2B2B2B;
+    color: #FFFFFF;
+    border: 1px solid #1F1F1F;
+    padding: 4px 6px;
+    border-radius: 6px;
+}

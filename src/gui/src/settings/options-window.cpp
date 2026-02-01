@@ -391,7 +391,7 @@ OptionsWindow::OptionsWindow(Profile *profile, ThemeLoader *themeLoader, QWidget
 	for (const QString &theme : themes) {
 		ui->comboTheme->addItem(theme, theme);
 	}
-	ui->comboTheme->setCurrentText(settings->value("theme", "Default").toString());
+	ui->comboTheme->setCurrentText(settings->value("theme", "FluentLight").toString());
 	const QStringList baseStyles = QStyleFactory::keys();
 	const QString defaultStyle = !baseStyles.isEmpty() ? (baseStyles.contains("windowsvista") ? "windowsvista" : baseStyles.first()) : "";
 	for (const QString &style : baseStyles) {
@@ -1168,7 +1168,7 @@ void OptionsWindow::save()
 
 	// Theme settings
 	const QString theme = ui->comboTheme->currentText();
-	const bool themeChanged = theme != settings->value("theme", "Default").toString();
+	const bool themeChanged = theme != settings->value("theme", "FluentLight").toString();
 	const bool scaleFontSizeChanged = ui->checkScaleFontSize->isChecked() != settings->value("Interface/scaleFontSize", true).toBool();
 	if (themeChanged || scaleFontSizeChanged) {
 		if (m_themeLoader->setTheme(theme)) {
