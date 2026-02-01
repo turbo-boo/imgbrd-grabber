@@ -473,6 +473,36 @@ QString savePath(const QString &file, bool exists, bool writable)
 	return QDir::toNativeSeparators(dir + QLatin1Char('/') + file);
 }
 
+void ensurePortableSettings()
+{
+	if (isTestModeEnabled()) {
+		return;
+	}
+
+	const QString appDir = qApp->applicationDirPath();
+	const QString settingsPath = QDir(appDir).filePath("settings.ini");
+
+	if (QFileInfo::exists(settingsPath)) {
+		return;
+	}
+
+	const QFileInfo dirInfo(appDir);
+	if (!dirInfo.isWritable()) {
+		return;
+	}
+
+	QFile file(settingsPath);
+	if (!file.open(QFile::WriteOnly | QFile::Truncate | QFile::Text)) {
+		return;
+	}
+
+	QByteArray data;
+	data += "[Save]\n";
+	data += "asyncPostSave=true\n";
+	file.write(data);
+	file.close();
+}
+
 /**
  * Return the levenshtein distance between two strings.
  * @param	s1	First string.

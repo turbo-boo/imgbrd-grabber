@@ -72,6 +72,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	ensurePortableSettings();
+
 	Profile profile(savePath());
 	QSettings *settings = profile.getSettings();
 

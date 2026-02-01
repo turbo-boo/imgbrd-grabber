@@ -118,6 +118,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	ensurePortableSettings();
+
 	#if defined(Q_OS_ANDROID)
 		if (!checkPermission("android.permission.WRITE_EXTERNAL_STORAGE")) {
 			QMessageBox::critical(nullptr, "Permission error", "Grabber needs storage writing permissions to download images");

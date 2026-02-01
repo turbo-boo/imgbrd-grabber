@@ -21,6 +21,8 @@ int main(int argc, char *argv[])
 
 	Logger::getInstance().initialize();
 
+	ensurePortableSettings();
+
 	Profile profile(savePath());
 	profile.purgeTemp(24 * 60 * 60);
 
