@@ -149,6 +149,7 @@ void BatchDownloader::nextImages()
 	// Start the simultaneous downloads
 	int count = qMax(1, qMin(m_settings->value("Save/simultaneous").toInt(), 10));
 	m_currentlyProcessing.storeRelaxed(count); // TODO: this should be shared amongst instances
+	m_downloadsFinished = false;
 	for (int i = 0; i < count; ++i) {
 		nextImage();
 	}
@@ -164,7 +165,10 @@ void BatchDownloader::nextImage()
 	// If we already finished
 	if (m_pendingDownloads.empty()) {
 		if (m_currentlyProcessing.fetchAndAddRelaxed(-1) == 1) {
-			allFinished();
+			m_downloadsFinished = true;
+			if (m_imageDownloaders.isEmpty()) {
+				allFinished();
+			}
 		}
 		return;
 	}
@@ -194,9 +198,16 @@ void BatchDownloader::loadImage(const QSharedPointer<Image> &img)
 	if (!getBlacklisted) {
 		imgDownloader->setBlacklist(&m_profile->getBlacklist());
 	}
+	connect(imgDownloader, &ImageDownloader::downloaded, this, &BatchDownloader::loadImageDownloaded, Qt::UniqueConnection);
 	connect(imgDownloader, &ImageDownloader::saved, this, &BatchDownloader::loadImageFinished, Qt::UniqueConnection);
 	m_imageDownloaders[img] = imgDownloader;
 	imgDownloader->save();
+}
+
+void BatchDownloader::loadImageDownloaded(const QSharedPointer<Image> &img)
+{
+	Q_UNUSED(img)
+	nextImage();
 }
 
 void BatchDownloader::loadImageFinished(const QSharedPointer<Image> &img, QList<ImageSaveResult> result)
@@ -231,12 +242,12 @@ void BatchDownloader::loadImageFinished(const QSharedPointer<Image> &img, QList<
 		m_counters[Counter::Downloaded]++;
 	}
 
-	// Start downloading the next image
 	if (!diskError) {
 		m_counterSum++;
+	}
 
-		QCoreApplication::processEvents();
-		QTimer::singleShot(0, this, SLOT(nextImage()));
+	if (m_downloadsFinished && m_imageDownloaders.isEmpty()) {
+		allFinished();
 	}
 }
 

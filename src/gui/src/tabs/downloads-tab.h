@@ -84,6 +84,7 @@ class DownloadsTab : public QWidget
 		void getAllFinishedImages(const QList<QSharedPointer<Image>> &images);
 		void getAllImages();
 		void getAllGetImage(const BatchDownloadImage &download, int siteId);
+		void getAllGetImageDownloaded(const QSharedPointer<Image> &img);
 		void getAllGetImageSaved(const QSharedPointer<Image> &img, QList<ImageSaveResult> result);
 		void getAllProgress(const QSharedPointer<Image> &img, qint64 bytesReceived, qint64 bytesTotal);
 		void getAllCancel();
@@ -136,6 +137,7 @@ class DownloadsTab : public QWidget
 		QList<Site*> m_getAllLogins;
 		int m_batchAutomaticRetries, m_getAllImagesCount, m_batchCurrentPackSize;
 		QAtomicInt m_getAllCurrentlyProcessing;
+		bool m_getAllDownloadsFinished = false;
 		QTimer *m_saveLinkList;
 		DownloadGroupTableModel *m_groupBatchsModel;
 		DownloadImageTableModel *m_batchsModel;

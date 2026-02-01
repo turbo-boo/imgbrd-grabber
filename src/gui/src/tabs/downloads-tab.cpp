@@ -803,6 +803,7 @@ void DownloadsTab::getAllImages()
 	// We start the simultaneous downloads
 	int count = qMax(1, qMin(m_settings->value("Save/simultaneous").toInt(), 10));
 	m_getAllCurrentlyProcessing.storeRelaxed(count);
+	m_getAllDownloadsFinished = false;
 	for (int i = 0; i < count; i++) {
 		_getAll();
 	}
@@ -826,7 +827,10 @@ void DownloadsTab::_getAll()
 	}
 	// When the batch download finishes
 	else if (m_getAllCurrentlyProcessing.fetchAndAddRelaxed(-1) == 1 && m_getAll) {
-		getAllFinished();
+		m_getAllDownloadsFinished = true;
+		if (m_getAllImageDownloaders.isEmpty()) {
+			getAllFinished();
+		}
 	}
 }
 
@@ -854,8 +858,6 @@ void DownloadsTab::getAllImageOk(const BatchDownloadImage &download, int siteId,
 	}
 
 	m_getAllDownloading.removeAll(download);
-	QCoreApplication::processEvents();
-	QTimer::singleShot(0, this, SLOT(_getAll()));
 }
 
 void DownloadsTab::imageUrlChanged(const QUrl &before, const QUrl &after)
@@ -935,10 +937,22 @@ void DownloadsTab::getAllGetImage(const BatchDownloadImage &download, int siteId
 	if (!getBlacklisted) {
 		imgDownloader->setBlacklist(&m_profile->getBlacklist());
 	}
+	connect(imgDownloader, &ImageDownloader::downloaded, this, &DownloadsTab::getAllGetImageDownloaded, Qt::UniqueConnection);
 	connect(imgDownloader, &ImageDownloader::saved, this, &DownloadsTab::getAllGetImageSaved, Qt::UniqueConnection);
 	connect(imgDownloader, &ImageDownloader::downloadProgress, this, &DownloadsTab::getAllProgress, Qt::UniqueConnection);
 	m_getAllImageDownloaders[img] = imgDownloader;
 	imgDownloader->save();
+}
+
+void DownloadsTab::getAllGetImageDownloaded(const QSharedPointer<Image> &img)
+{
+	Q_UNUSED(img)
+
+	if (!m_getAll) {
+		return;
+	}
+
+	_getAll();
 }
 
 void DownloadsTab::getAllGetImageSaved(const QSharedPointer<Image> &img, QList<ImageSaveResult> result)
@@ -1016,6 +1030,10 @@ void DownloadsTab::getAllGetImageSaved(const QSharedPointer<Image> &img, QList<I
 
 	int siteId = download.siteId(m_groupBatchs);
 	getAllImageOk(download, siteId, diskError);
+
+	if (m_getAllDownloadsFinished && m_getAllImageDownloaders.isEmpty()) {
+		getAllFinished();
+	}
 }
 
 void DownloadsTab::getAllCancel()

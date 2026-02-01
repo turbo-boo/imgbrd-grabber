@@ -59,6 +59,7 @@ class BatchDownloader : public QObject
 		void nextImages();
 		void nextImage();
 		void loadImage(const QSharedPointer<Image> &img);
+		void loadImageDownloaded(const QSharedPointer<Image> &img);
 		void loadImageFinished(const QSharedPointer<Image> &img, QList<ImageSaveResult> result);
 		void allFinished();
 
@@ -82,6 +83,7 @@ class BatchDownloader : public QObject
 		QQueue<QSharedPointer<Image>> m_failedDownloads;
 		QMap<QSharedPointer<Image>, ImageDownloader*> m_imageDownloaders;
 		int m_totalCount = 0;
+		bool m_downloadsFinished = false;
 
 		// Counters
 		QMap<Counter, int> m_counters;
