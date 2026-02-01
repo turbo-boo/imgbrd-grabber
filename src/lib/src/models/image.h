@@ -26,6 +26,24 @@ class Image : public QObject, public Downloadable
 	Q_OBJECT
 
 	public:
+		struct PostSaveContext
+		{
+			QString path;
+			QString ext;
+			bool ffmpegRemuxWebmToMp4 = false;
+			bool ffmpegConvertWebmToMp4 = false;
+			int ffmpegTimeout = 30000;
+			QString targetImgExt;
+			QString targetImgExtAfterWebm;
+			QString imageBackend;
+			int imageConvertTimeout = 30000;
+			bool convertUgoira = false;
+			QString targetUgoiraExt;
+			bool convertUgoiraDeleteOriginal = false;
+			int convertUgoiraTimeout = 30000;
+			QList<QPair<QString, int>> ugoiraFrames;
+		};
+
 		enum LoadTagsResult
 		{
 			Ok,
@@ -111,6 +129,9 @@ class Image : public QObject, public Downloadable
 		QMap<QString, Token> generateTokens(Profile *profile) const override;
 		SaveResult preSave(const QString &path, Size size) override;
 		QString postSave(const QString &path, Size size, SaveResult result, bool addMd5, bool startCommands, int count, bool basic = false) override;
+		PostSaveContext preparePostSave(const QString &path, Size size, bool startCommands, int count, bool basic);
+		static PostSaveContext applyPostSaveConversions(PostSaveContext ctx);
+		QString finalizePostSave(const QString &path, Size size, bool addMd5);
 
 		// Tokens
 		template <typename T>

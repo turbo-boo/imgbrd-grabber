@@ -745,6 +745,15 @@ QString &pathTokens(QString &filename, const QString &path)
 }
 QString Image::postSaving(const QString &originalPath, Size size, bool addMd5, bool startCommands, int count, bool basic)
 {
+	auto ctx = preparePostSave(originalPath, size, startCommands, count, basic);
+	ctx = applyPostSaveConversions(ctx);
+	return finalizePostSave(ctx.path, size, addMd5);
+}
+
+Image::PostSaveContext Image::preparePostSave(const QString &originalPath, Size size, bool startCommands, int count, bool basic)
+{
+	Q_UNUSED(size)
+	PostSaveContext ctx;
 	QString path = originalPath;
 
 	// Save info to a text file
@@ -827,43 +836,79 @@ QString Image::postSaving(const QString &originalPath, Size size, bool addMd5, b
 		commands.after();
 	}
 
+	ctx.path = path;
+	ctx.ext = ext;
+
+	// Conversion settings
+	if (ext == QStringLiteral("webm")) {
+		ctx.ffmpegRemuxWebmToMp4 = m_settings->value("Save/FFmpegRemuxWebmToMp4", false).toBool();
+		ctx.ffmpegConvertWebmToMp4 = m_settings->value("Save/FFmpegConvertWebmToMp4", false).toBool();
+		ctx.ffmpegTimeout = m_settings->value("Save/FFmpegConvertTimeout", 30000).toInt();
+	}
+
+	ctx.targetImgExt = m_settings->value("Save/ImageConversion/" + ext.toUpper() + "/to").toString().toLower();
+	if (ext == QStringLiteral("webm")) {
+		ctx.targetImgExtAfterWebm = m_settings->value("Save/ImageConversion/MP4/to").toString().toLower();
+	}
+	if (!ctx.targetImgExt.isEmpty() || !ctx.targetImgExtAfterWebm.isEmpty()) {
+		ctx.imageBackend = m_settings->value("Save/ImageConversionBackend", "ImageMagick").toString();
+		ctx.imageConvertTimeout = m_settings->value("Save/ConvertUgoiraTimeout", 30000).toInt();
+	}
+
+	ctx.convertUgoira = ext == QStringLiteral("zip") && m_settings->value("Save/ConvertUgoira", false).toBool();
+	if (ctx.convertUgoira) {
+		ctx.targetUgoiraExt = m_settings->value("Save/ConvertUgoiraFormat", "gif").toString();
+		ctx.convertUgoiraDeleteOriginal = m_settings->value("Save/ConvertUgoiraDeleteOriginal", false).toBool();
+		ctx.convertUgoiraTimeout = m_settings->value("Save/ConvertUgoiraTimeout", 30000).toInt();
+		ctx.ugoiraFrames = ugoiraFrameInformation();
+	}
+
+	return ctx;
+}
+
+Image::PostSaveContext Image::applyPostSaveConversions(PostSaveContext ctx)
+{
+	QString path = ctx.path;
+	QString ext = ctx.ext;
+
 	// FFmpeg
 	if (ext == QStringLiteral("webm")) {
-		const bool remux = m_settings->value("Save/FFmpegRemuxWebmToMp4", false).toBool();
-		const bool convert = m_settings->value("Save/FFmpegConvertWebmToMp4", false).toBool();
-		const int timeout = m_settings->value("Save/FFmpegConvertTimeout", 30000).toInt();
-
 		// We can only remux VP9 to MP4 as VP8 is not compatible with the MP4 container and needs conversion instead
-		if (remux && FFmpeg::getVideoCodec(path) == QStringLiteral("vp9")) {
-			path = FFmpeg::remux(path, "mp4", true, timeout);
+		if (ctx.ffmpegRemuxWebmToMp4 && FFmpeg::getVideoCodec(path) == QStringLiteral("vp9")) {
+			path = FFmpeg::remux(path, "mp4", true, ctx.ffmpegTimeout);
 			ext = getExtension(path);
-		} else if (convert) {
-			path = FFmpeg::convert(path, "mp4", true, timeout);
+		} else if (ctx.ffmpegConvertWebmToMp4) {
+			path = FFmpeg::convert(path, "mp4", true, ctx.ffmpegTimeout);
 			ext = getExtension(path);
 		}
 	}
 
 	// Image conversion
-	const QString targetImgExt = m_settings->value("Save/ImageConversion/" + ext.toUpper() + "/to").toString().toLower();
+	const QString targetImgExt = ext == QStringLiteral("mp4") ? ctx.targetImgExtAfterWebm : ctx.targetImgExt;
 	if (!targetImgExt.isEmpty()) {
-		const QString backend = m_settings->value("Save/ImageConversionBackend", "ImageMagick").toString();
-		const int timeout = m_settings->value("Save/ConvertUgoiraTimeout", 30000).toInt();
-		if (backend == QStringLiteral("ImageMagick")) {
-			path = ImageMagick::convert(path, targetImgExt, true, timeout);
-		} else if (backend == QStringLiteral("FFmpeg")) {
-			path = FFmpeg::convert(path, targetImgExt, true, timeout);
+		if (ctx.imageBackend == QStringLiteral("ImageMagick")) {
+			path = ImageMagick::convert(path, targetImgExt, true, ctx.imageConvertTimeout);
+		} else if (ctx.imageBackend == QStringLiteral("FFmpeg")) {
+			path = FFmpeg::convert(path, targetImgExt, true, ctx.imageConvertTimeout);
 		}
 		ext = getExtension(path);
 	}
 
 	// Ugoira conversion
-	if (ext == QStringLiteral("zip") && m_settings->value("Save/ConvertUgoira", false).toBool()) {
-		const QString targetUgoiraExt = m_settings->value("Save/ConvertUgoiraFormat", "gif").toString();
-		const bool deleteOriginal = m_settings->value("Save/ConvertUgoiraDeleteOriginal", false).toBool();
-		const int timeout = m_settings->value("Save/ConvertUgoiraTimeout", 30000).toInt();
-		path = FFmpeg::convertUgoira(path, ugoiraFrameInformation(), targetUgoiraExt, deleteOriginal, timeout);
+	if (ext == QStringLiteral("zip") && ctx.convertUgoira) {
+		path = FFmpeg::convertUgoira(path, ctx.ugoiraFrames, ctx.targetUgoiraExt, ctx.convertUgoiraDeleteOriginal, ctx.convertUgoiraTimeout);
 		ext = getExtension(path);
 	}
+
+	ctx.path = path;
+	ctx.ext = ext;
+	return ctx;
+}
+
+QString Image::finalizePostSave(const QString &path, Size size, bool addMd5)
+{
+	QString finalPath = path;
+	const QString ext = getExtension(finalPath);
 
 	// Metadata
 	#ifdef WIN_FILE_PROPS
@@ -871,12 +916,12 @@ QString Image::postSaving(const QString &originalPath, Size size, bool addMd5, b
 		if (exts.isEmpty() || exts.contains(ext)) {
 			const auto metadataPropsys = getMetadataPropsys(m_settings);
 			if (m_settings->value("Save/MetadataPropsysClear", false).toBool()) {
-				clearAllWindowsProperties(path);
+				clearAllWindowsProperties(finalPath);
 			}
 			for (const auto &pair : metadataPropsys) {
 				const QStringList values = Filename(pair.second).path(*this, m_profile, "", 0, Filename::Complex);
 				if (!values.isEmpty()) {
-					setWindowsProperty(path, pair.first, values.first());
+					setWindowsProperty(finalPath, pair.first, values.first());
 				}
 			}
 		}
@@ -902,7 +947,7 @@ QString Image::postSaving(const QString &originalPath, Size size, bool addMd5, b
 			Exiftool &exiftool = m_profile->getExiftool();
 			exiftool.start();
 			exiftool.setMetadata(
-				path,
+				finalPath,
 				metadata,
 				m_settings->value("Save/MetadataExiftoolClear", false).toBool(),
 				m_settings->value("Save/MetadataExiftoolKeepColorProfile", true).toBool(),
@@ -913,11 +958,11 @@ QString Image::postSaving(const QString &originalPath, Size size, bool addMd5, b
 	}
 
 	if (addMd5) {
-		m_profile->addMd5(md5(), path);
+		m_profile->addMd5(md5(), finalPath);
 	}
 
-	setSavePath(path, size);
-	return path;
+	setSavePath(finalPath, size);
+	return finalPath;
 }
 
 
