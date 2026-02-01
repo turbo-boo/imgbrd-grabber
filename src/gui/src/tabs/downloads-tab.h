@@ -100,6 +100,8 @@ class DownloadsTab : public QWidget
 		void getAllImageOk(const BatchDownloadImage &download, int siteId, bool retry = false);
 		void imageUrlChanged(const QUrl &before, const QUrl &after);
 		void _getAll();
+		void appendImages(const QList<QSharedPointer<Image>> &images);
+		void scheduleNextPack();
 
 		// Others
 		QIcon &getIcon(const QString &path);
@@ -138,6 +140,9 @@ class DownloadsTab : public QWidget
 		int m_batchAutomaticRetries, m_getAllImagesCount, m_batchCurrentPackSize;
 		QAtomicInt m_getAllCurrentlyProcessing;
 		bool m_getAllDownloadsFinished = false;
+		bool m_getAllStarted = false;
+		bool m_packLoading = false;
+		int m_getAllListed = 0;
 		QTimer *m_saveLinkList;
 		DownloadGroupTableModel *m_groupBatchsModel;
 		DownloadImageTableModel *m_batchsModel;

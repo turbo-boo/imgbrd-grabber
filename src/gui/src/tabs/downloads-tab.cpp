@@ -505,6 +505,9 @@ void DownloadsTab::getAll(bool all)
 	m_waitingPackLoaders.clear();
 	m_currentPackLoader = nullptr;
 	m_batchUniqueDownloading.clear();
+	m_getAllStarted = false;
+	m_packLoading = false;
+	m_getAllListed = 0;
 
 	if (!all) {
 		QSet<int> tdl = selectedRows(ui->tableBatchUniques);
@@ -670,17 +673,27 @@ void DownloadsTab::getAllFinishedLogins()
 		DownloadQueryGroup b = it.value();
 		total += b.total;
 
-		auto *packLoader = new PackLoader(m_profile, b, usePacking ? imagesPerPack : -1, this);
+		int packSize = -1;
+		if (usePacking) {
+			const int perPage = qMax(1, b.perpage);
+			packSize = qMin(imagesPerPack, perPage);
+		}
+
+		auto *packLoader = new PackLoader(m_profile, b, packSize, this);
 		connect(packLoader, &PackLoader::finishedPage, this, &DownloadsTab::getAllFinishedPage);
 		m_waitingPackLoaders.enqueue(packLoader);
 	}
 
 	m_getAllImagesCount = total;
-	getNextPack();
+	scheduleNextPack();
 }
 
 void DownloadsTab::getNextPack()
 {
+	if (m_packLoading || !m_getAll) {
+		return;
+	}
+
 	// If the current pack loader is not finished
 	if (m_currentPackLoader != nullptr && m_currentPackLoader->hasNext()) {
 		getAllGetPages();
@@ -705,15 +718,21 @@ void DownloadsTab::getNextPack()
 
 void DownloadsTab::getAllGetPages()
 {
-	m_progressDialog->clearImages();
-	m_progressDialog->setText(tr("Downloading pages, please wait..."));
+	m_packLoading = true;
+
+	if (!m_getAllStarted) {
+		m_progressDialog->clearImages();
+		m_progressDialog->setText(tr("Downloading pages, please wait..."));
+	}
 
 	const auto &query = m_currentPackLoader->query();
 	const int images = m_currentPackLoader->nextPackSize();
 	const int pages = qMax(1, qCeil(static_cast<qreal>(images) / query.perpage));
 
-	m_progressDialog->setCurrentValue(0);
-	m_progressDialog->setCurrentMax(pages);
+	if (!m_getAllStarted) {
+		m_progressDialog->setCurrentValue(0);
+		m_progressDialog->setCurrentMax(pages);
+	}
 	m_batchCurrentPackSize = images;
 
 	getAllFinishedImages(m_currentPackLoader->next());
@@ -728,6 +747,10 @@ void DownloadsTab::getAllFinishedPage(Page *page)
 {
 	Q_UNUSED(page)
 
+	if (m_getAllStarted) {
+		return;
+	}
+
 	m_progressDialog->setCurrentValue(m_progressDialog->currentValue() + 1);
 }
 
@@ -739,21 +762,26 @@ void DownloadsTab::getAllFinishedPage(Page *page)
 void DownloadsTab::getAllFinishedImages(const QList<QSharedPointer<Image>> &images)
 {
 	int row = -1;
-	for (auto it = m_batchPending.constBegin(); it != m_batchPending.constEnd(); ++it) {
-		if (it.value() == m_currentPackLoader->query()) {
-			row = it.key();
-			break;
+	if (m_currentPackLoader != nullptr) {
+		for (auto it = m_batchPending.constBegin(); it != m_batchPending.constEnd(); ++it) {
+			if (it.value() == m_currentPackLoader->query()) {
+				row = it.key();
+				break;
+			}
 		}
-	}
-	if (row < 0) {
-		log("Images received from unknown batch", Logger::Error);
-		return;
+		if (row < 0) {
+			log("Images received from unknown batch", Logger::Error);
+			m_packLoading = false;
+			return;
+		}
 	}
 
 	for (const auto &img : images) {
 		BatchDownloadImage d;
 		d.image = img;
-		d.queryGroup = &m_batchPending[row];
+		if (row >= 0) {
+			d.queryGroup = &m_batchPending[row];
+		}
 		m_getAllRemaining.append(d);
 	}
 
@@ -763,12 +791,19 @@ void DownloadsTab::getAllFinishedImages(const QList<QSharedPointer<Image>> &imag
 		int unlisted = m_batchCurrentPackSize - images.count();
 		m_getAllImagesCount -= unlisted;
 	}
+	if (m_getAllStarted) {
+		m_progressDialog->setTotalMax(m_getAllImagesCount);
+	}
 
 	// Stop here if we're paused
 	if (m_getAll) {
 		m_batchAutomaticRetries = m_settings->value("Save/automaticretries", 0).toInt();
+		appendImages(images);
 		getAllImages();
 	}
+
+	m_packLoading = false;
+	scheduleNextPack();
 }
 
 /**
@@ -776,12 +811,20 @@ void DownloadsTab::getAllFinishedImages(const QList<QSharedPointer<Image>> &imag
  */
 void DownloadsTab::getAllImages()
 {
-	log(QStringLiteral("All images' urls have been received (%1).").arg(m_getAllRemaining.count()), Logger::Info);
+	if (m_getAllStarted || !m_getAll) {
+		return;
+	}
+	if (m_getAllRemaining.isEmpty()) {
+		return;
+	}
+
+	log(QStringLiteral("Starting image downloads with %1 queued image(s).").arg(m_getAllRemaining.count()), Logger::Info);
 
 	// We add the images to the download dialog
 	m_progressDialog->clearImages();
 	m_progressDialog->setText(tr("Preparing images, please wait..."));
-	m_progressDialog->setCount(m_getAllRemaining.count());
+	m_getAllListed = m_getAllRemaining.count();
+	m_progressDialog->setCount(m_getAllListed);
 	for (const BatchDownloadImage &download : qAsConst(m_getAllRemaining)) {
 		const int siteId = download.siteId(m_groupBatchs);
 		QSharedPointer<Image> img = download.image;
@@ -796,7 +839,7 @@ void DownloadsTab::getAllImages()
 	m_progressDialog->updateColumns();
 	m_progressDialog->setText(tr("Downloading images..."));
 	m_progressDialog->setCurrentValue(0);
-	m_progressDialog->setCurrentMax(m_getAllRemaining.count());
+	m_progressDialog->setCurrentMax(m_getAllListed);
 	m_progressDialog->setTotalValue(m_getAllDownloaded + m_getAllExists + m_getAllIgnored + m_getAllErrors + m_getAllResumed);
 	m_progressDialog->setTotalMax(m_getAllImagesCount);
 
@@ -807,6 +850,8 @@ void DownloadsTab::getAllImages()
 	for (int i = 0; i < count; i++) {
 		_getAll();
 	}
+
+	m_getAllStarted = true;
 }
 
 void DownloadsTab::_getAll()
@@ -824,6 +869,7 @@ void DownloadsTab::_getAll()
 
 		int siteId = download.siteId(m_groupBatchs);
 		getAllGetImage(download, siteId);
+		scheduleNextPack();
 	}
 	// When the batch download finishes
 	else if (m_getAllCurrentlyProcessing.fetchAndAddRelaxed(-1) == 1 && m_getAll) {
@@ -832,6 +878,69 @@ void DownloadsTab::_getAll()
 			getAllFinished();
 		}
 	}
+}
+
+void DownloadsTab::appendImages(const QList<QSharedPointer<Image>> &images)
+{
+	if (images.isEmpty() || !m_getAllStarted) {
+		return;
+	}
+
+	int toAdd = 0;
+	for (const auto &img : images) {
+		if (m_progressDialog->indexOf(img->url()) >= 0) {
+			continue;
+		}
+		toAdd++;
+	}
+
+	if (toAdd == 0) {
+		return;
+	}
+
+	m_progressDialog->setCount(m_getAllListed + toAdd);
+	for (const auto &img : images) {
+		if (m_progressDialog->indexOf(img->url()) >= 0) {
+			continue;
+		}
+
+		int siteId = -1;
+		for (const BatchDownloadImage &download : qAsConst(m_getAllRemaining)) {
+			if (download.image == img) {
+				siteId = download.siteId(m_groupBatchs);
+				break;
+			}
+		}
+
+		m_progressDialog->addImage(img->url(), siteId, img->fileSize());
+		connect(img.data(), &Image::urlChanged, m_progressDialog, &BatchWindow::imageUrlChanged);
+		connect(img.data(), &Image::urlChanged, this, &DownloadsTab::imageUrlChanged);
+		m_getAllListed++;
+	}
+
+	m_progressDialog->updateColumns();
+	m_progressDialog->setCurrentMax(m_getAllListed);
+	m_progressDialog->setTotalMax(m_getAllImagesCount);
+}
+
+void DownloadsTab::scheduleNextPack()
+{
+	if (!m_getAll || m_packLoading) {
+		return;
+	}
+	if (m_currentPackLoader == nullptr && m_waitingPackLoaders.isEmpty()) {
+		getAllImages();
+		return;
+	}
+
+	const int count = qMax(1, qMin(m_settings->value("Save/simultaneous").toInt(), 10));
+	const int bufferTarget = count * 2;
+	const int buffered = m_getAllRemaining.count() + m_getAllDownloading.count();
+	if (m_getAllStarted && buffered >= bufferTarget) {
+		return;
+	}
+
+	QTimer::singleShot(0, this, SLOT(getNextPack()));
 }
 
 void DownloadsTab::getAllImageOk(const BatchDownloadImage &download, int siteId, bool retry)
@@ -1048,6 +1157,7 @@ void DownloadsTab::getAllCancel()
 		it.value()->abort();
 	}
 	m_getAll = false;
+	m_packLoading = false;
 	ui->widgetDownloadButtons->setEnabled(true);
 	DONE();
 }
@@ -1164,6 +1274,8 @@ void DownloadsTab::getAllFinished()
 	}
 	activateWindow();
 	m_getAll = false;
+	m_getAllStarted = false;
+	m_packLoading = false;
 
 	// Remove after download and retries are finished
 	if (m_progressDialog->endRemove()) {
@@ -1182,6 +1294,7 @@ void DownloadsTab::getAllPause()
 	if (m_progressDialog->isPaused()) {
 		log(QStringLiteral("Pausing downloads..."), Logger::Info);
 		m_getAll = false;
+		m_packLoading = false;
 		if (m_currentPackLoader != nullptr) {
 			m_currentPackLoader->abort();
 		}
