@@ -102,6 +102,9 @@ class DownloadsTab : public QWidget
 		void _getAll();
 		void appendImages(const QList<QSharedPointer<Image>> &images);
 		void scheduleNextPack();
+		bool allPacksDone() const;
+		void startQueuedDownloads();
+		void tryFinishGetAll();
 
 		// Others
 		QIcon &getIcon(const QString &path);

@@ -804,6 +804,7 @@ void DownloadsTab::getAllFinishedImages(const QList<QSharedPointer<Image>> &imag
 
 	m_packLoading = false;
 	scheduleNextPack();
+	tryFinishGetAll();
 }
 
 /**
@@ -872,10 +873,15 @@ void DownloadsTab::_getAll()
 		scheduleNextPack();
 	}
 	// When the batch download finishes
-	else if (m_getAllCurrentlyProcessing.fetchAndAddRelaxed(-1) == 1 && m_getAll) {
-		m_getAllDownloadsFinished = true;
-		if (m_getAllImageDownloaders.isEmpty()) {
-			getAllFinished();
+	else if (m_getAll) {
+		if (!allPacksDone()) {
+			return;
+		}
+		if (m_getAllCurrentlyProcessing.fetchAndAddRelaxed(-1) == 1) {
+			m_getAllDownloadsFinished = true;
+			if (m_getAllImageDownloaders.isEmpty()) {
+				getAllFinished();
+			}
 		}
 	}
 }
@@ -921,6 +927,7 @@ void DownloadsTab::appendImages(const QList<QSharedPointer<Image>> &images)
 	m_progressDialog->updateColumns();
 	m_progressDialog->setCurrentMax(m_getAllListed);
 	m_progressDialog->setTotalMax(m_getAllImagesCount);
+	startQueuedDownloads();
 }
 
 void DownloadsTab::scheduleNextPack()
@@ -930,6 +937,7 @@ void DownloadsTab::scheduleNextPack()
 	}
 	if (m_currentPackLoader == nullptr && m_waitingPackLoaders.isEmpty()) {
 		getAllImages();
+		tryFinishGetAll();
 		return;
 	}
 
@@ -941,6 +949,49 @@ void DownloadsTab::scheduleNextPack()
 	}
 
 	QTimer::singleShot(0, this, SLOT(getNextPack()));
+}
+
+bool DownloadsTab::allPacksDone() const
+{
+	if (m_packLoading) {
+		return false;
+	}
+	if (!m_waitingPackLoaders.isEmpty()) {
+		return false;
+	}
+	if (m_currentPackLoader == nullptr) {
+		return true;
+	}
+
+	return !m_currentPackLoader->hasNext();
+}
+
+void DownloadsTab::startQueuedDownloads()
+{
+	if (!m_getAllStarted || !m_getAll) {
+		return;
+	}
+
+	const int count = qMax(1, qMin(m_settings->value("Save/simultaneous").toInt(), 10));
+	while (m_getAllDownloading.count() < count && !m_getAllRemaining.isEmpty()) {
+		_getAll();
+	}
+}
+
+void DownloadsTab::tryFinishGetAll()
+{
+	if (!m_getAll || !allPacksDone()) {
+		return;
+	}
+	if (!m_getAllRemaining.isEmpty() || !m_getAllDownloading.isEmpty()) {
+		return;
+	}
+	if (!m_getAllImageDownloaders.isEmpty()) {
+		return;
+	}
+
+	m_getAllDownloadsFinished = true;
+	getAllFinished();
 }
 
 void DownloadsTab::getAllImageOk(const BatchDownloadImage &download, int siteId, bool retry)
